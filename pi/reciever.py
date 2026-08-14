@@ -1,4 +1,5 @@
 import socket
+from datetime import datetime
 
 from conf import HOST, PORT, FILE
 
@@ -26,7 +27,7 @@ while True:
 
         if data:
             with open(FILE, "ab") as f:
-                f.write(data)
+                f.write(f"{datetime.now()}data: {data}")
 
             print(f"Written to {FILE}", flush=True)
 
