@@ -17,16 +17,10 @@ while True:
 
     print(f"Connection from {addr}", flush=True)
 
-    with conn:
-        data = b""
+    conn.settimeout(2.0)
 
-        while True:
-            chunk = conn.recv(1024)
-
-            if not chunk:
-                break
-
-            data += chunk
+    try:
+        data = conn.recv(1024)
 
         print(f"Received: {data!r}", flush=True)
 
@@ -35,4 +29,14 @@ while True:
                 f.write(data)
 
             print(f"Written to {FILE}", flush=True)
+
+    except socket.timeout:
+        print("Timeout waiting for data", flush=True)
+
+    except Exception as e:
+        print(f"Error receiving data: {e}", flush=True)
+
+    finally:
+        conn.close()
+        print("Connection closed", flush=True)
 
