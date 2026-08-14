@@ -27,7 +27,7 @@ while True:
 
         if data:
             with open(FILE, "ab") as f:
-                f.write(f"{datetime.now()}data: {data.decode('ascii')}")
+                f.write(f"{datetime.now()}data: {data.decode('ascii')}".encode('ascii'))
 
             print(f"Written to {FILE}", flush=True)
 
