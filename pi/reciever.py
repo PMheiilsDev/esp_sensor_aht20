@@ -1,7 +1,7 @@
 import socket
 
 HOST = "0.0.0.0"
-PORT = 5000
+PORT = 5050
 FILE = "/home/pi/data.txt"
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
