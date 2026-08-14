@@ -2,36 +2,37 @@ import socket
 
 from conf import HOST, PORT, FILE
 
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((HOST, PORT))
-    server.listen(5)
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    print(f"Listening on {HOST}:{PORT}", flush=True)
+server.bind((HOST, PORT))
+server.listen(5)
 
-    while True:
-        conn, addr = server.accept()
+print(f"Listening on {HOST}:{PORT}", flush=True)
 
-        print(f"Connection from {addr}", flush=True)
+while True:
+    print("Waiting for connection...", flush=True)
 
-        with conn:
-            chunks = []
+    conn, addr = server.accept()
 
-            while True:
-                data = conn.recv(1024)
+    print(f"Connection from {addr}", flush=True)
 
-                if not data:
-                    break
+    with conn:
+        data = b""
 
-                chunks.append(data)
+        while True:
+            chunk = conn.recv(1024)
 
-            message = b"".join(chunks).decode(
-                "utf-8",
-                errors="replace"
-            )
+            if not chunk:
+                break
 
-            print(f"Received: {message}", flush=True)
+            data += chunk
 
-            with open(FILE, "a") as f:
-                f.write(message + "\n")
+        print(f"Received: {data!r}", flush=True)
+
+        if data:
+            with open(FILE, "ab") as f:
+                f.write(data)
+
+            print(f"Written to {FILE}", flush=True)
 
