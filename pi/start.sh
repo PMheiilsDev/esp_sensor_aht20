@@ -1,1 +1,1 @@
-watchmedo auto-restart --patterns="*.py" --recursive -- python3 main.py
+watchmedo auto-restart --patterns="pi/*.py" --recursive -- python3 pi/reciever.py
