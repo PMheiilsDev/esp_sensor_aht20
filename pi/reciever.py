@@ -1,8 +1,6 @@
 import socket
 
-HOST = "0.0.0.0"
-PORT = 5050
-FILE = "/home/pi/data.txt"
+from conf import HOST, PORT, FILE
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
