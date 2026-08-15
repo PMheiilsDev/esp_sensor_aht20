@@ -1,5 +1,6 @@
 import socket
 from datetime import datetime
+import json
 
 from conf import HOST, PORT, FILE
 
@@ -27,7 +28,10 @@ while True:
 
         if data:
             with open(FILE, "ab") as f:
-                f.write(f"{datetime.now()} data: {data.decode('ascii')}".encode('ascii'))
+                s = data.decode('ascii')
+                j = json.loads(s)
+                j["time"] = f"{datetime.now()}"
+                f.write(f"{j}".encode('ascii'))
 
             print(f"Written to {FILE}", flush=True)
 
