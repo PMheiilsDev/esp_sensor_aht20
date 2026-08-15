@@ -28,10 +28,17 @@ while True:
 
         if data:
             with open(FILE, "ab") as f:
-                s = data.decode('ascii')
+                s = data.decode("ascii").strip()
                 j = json.loads(s)
-                j["time"] = f"{datetime.now()}"
-                f.write(f"{j}\n".encode('ascii'))
+
+                j = {
+                    "time": datetime.now().isoformat(),
+                    **j
+                }
+
+                f.write(
+                    (json.dumps(j) + "\n").encode("utf-8")
+                )
 
             print(f"Written to {FILE}", flush=True)
 
