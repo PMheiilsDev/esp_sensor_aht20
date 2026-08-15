@@ -31,7 +31,7 @@ while True:
                 s = data.decode('ascii')
                 j = json.loads(s)
                 j["time"] = f"{datetime.now()}"
-                f.write(f"{j}".encode('ascii'))
+                f.write(f"{j}\n".encode('ascii'))
 
             print(f"Written to {FILE}", flush=True)
 
