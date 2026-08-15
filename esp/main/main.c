@@ -41,8 +41,9 @@
 #define SERVER_PORT     5050
 
 // Deep sleep interval
-#define SLEEP_TIME_SECONDS 30
-
+#define SLEEP_TIME_SECONDS              (5*60)
+#define SLEEP_TIME_SECONDS_POWER_SAVE   (15*60)
+#define MIN_BATTERY_VOLTAGE             3.5f
 
 #define GPIO8_PIN GPIO_NUM_8
 
@@ -814,7 +815,8 @@ static void aht20_power_off(void)
 static bool send_data_to_pi(
     float temperature,
     float humidity,
-    float battery_voltage)
+    float battery_voltage,
+    bool power_save_mode)
 {
     struct sockaddr_in dest_addr;
 
@@ -910,11 +912,12 @@ static bool send_data_to_pi(
     snprintf(
         message,
         sizeof(message),
-        "{\"count\":%lu,\"temperature\":%.2f,\"humidity\":%.2f,\"vbat\":%.3f}\n",
+        "{\"count\":%lu,\"temperature\":%.2f,\"humidity\":%.2f,\"vbat\":%.3f,\"power_save\":%s}\n",
         (unsigned long)send_count,
         temperature,
         humidity,
-        battery_voltage
+        battery_voltage,
+        power_save_mode ? "true" : "false"
     );
 
 
@@ -1044,6 +1047,15 @@ void app_main(void)
     float battery_voltage =
         measure_battery_voltage();
 
+    bool power_save_mode =
+        battery_voltage < MIN_BATTERY_VOLTAGE;
+
+    ESP_LOGI(
+        TAG,
+        "Battery: %.3f V, power save: %s",
+        battery_voltage,
+        power_save_mode ? "TRUE" : "FALSE"
+    );
 
     ESP_LOGI(
         TAG,
@@ -1120,7 +1132,8 @@ void app_main(void)
         send_data_to_pi(
             temperature,
             humidity,
-            battery_voltage
+            battery_voltage,
+            power_save_mode
         );
     }
     else
@@ -1138,15 +1151,19 @@ sleep:
     // Deep sleep
     // --------------------------------------------------------
 
+    uint32_t sleep_time =
+        power_save_mode
+            ? SLEEP_TIME_SECONDS_POWER_SAVE
+            : SLEEP_TIME_SECONDS;
+
     ESP_LOGI(
         TAG,
-        "Going to deep sleep for %d seconds",
-        SLEEP_TIME_SECONDS
+        "Going to deep sleep for %lu seconds",
+        (unsigned long)sleep_time
     );
 
     esp_sleep_enable_timer_wakeup(
-        (uint64_t)SLEEP_TIME_SECONDS *
-        1000000ULL
+        (uint64_t)sleep_time * 1000000ULL
     );
 
     esp_deep_sleep_start();
