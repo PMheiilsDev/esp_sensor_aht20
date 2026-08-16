@@ -1,0 +1,6 @@
+esp/main/wifi_creds.h
+pi/conf.py
+build
+.venv
+.vscode
+data.txt
