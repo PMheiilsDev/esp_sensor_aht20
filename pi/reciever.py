@@ -4,51 +4,57 @@ import json
 
 from conf import HOST, PORT, FILE
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+def start():
 
-server.bind((HOST, PORT))
-server.listen(5)
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-print(f"Listening on {HOST}:{PORT}", flush=True)
+    server.bind((HOST, PORT))
+    server.listen(5)
 
-while True:
-    print("Waiting for connection...", flush=True)
+    print(f"Listening on {HOST}:{PORT}", flush=True)
 
-    conn, addr = server.accept()
+    while True:
+        print("Waiting for connection...", flush=True)
 
-    print(f"Connection from {addr}", flush=True)
+        conn, addr = server.accept()
 
-    conn.settimeout(2.0)
+        print(f"Connection from {addr}", flush=True)
 
-    try:
-        data = conn.recv(1024)
+        conn.settimeout(2.0)
 
-        print(f"Received: {data!r}", flush=True)
+        try:
+            data = conn.recv(1024)
 
-        if data:
-            with open(FILE, "ab") as f:
-                s = data.decode("ascii").strip()
-                j = json.loads(s)
+            print(f"Received: {data!r}", flush=True)
 
-                j = {
-                    "time": datetime.now().isoformat(),
-                    **j
-                }
+            if data:
+                with open(FILE, "ab") as f:
+                    s = data.decode("ascii").strip()
+                    j = json.loads(s)
 
-                f.write(
-                    (json.dumps(j) + "\n").encode("utf-8")
-                )
+                    j = {
+                        "time": datetime.now().isoformat(),
+                        **j
+                    }
 
-            print(f"Written to {FILE}", flush=True)
+                    f.write(
+                        (json.dumps(j) + "\n").encode("utf-8")
+                    )
 
-    except socket.timeout:
-        print("Timeout waiting for data", flush=True)
+                print(f"Written to {FILE}", flush=True)
 
-    except Exception as e:
-        print(f"Error receiving data: {e}", flush=True)
+        except socket.timeout:
+            print("Timeout waiting for data", flush=True)
 
-    finally:
-        conn.close()
-        print("Connection closed", flush=True)
+        except Exception as e:
+            print(f"Error receiving data: {e}", flush=True)
+
+        finally:
+            conn.close()
+            print("Connection closed", flush=True)
+
+
+if __name__ == '__main__':
+    start()
 
