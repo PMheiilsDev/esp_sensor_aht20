@@ -185,6 +185,13 @@
 
         let endManuallyChanged = false;
 
+
+        let hiddenSeries = {
+            Temperature: false,
+            Humidity: false,
+            Voltage: false
+        };
+
         /*
          * =====================================================
          * Update status text
@@ -623,7 +630,9 @@
 
                     tension: 0,
 
-                    yAxisID: "voltage"
+                    yAxisID: "voltage",
+
+                    hidden: hiddenSeries.Voltage
 
                 });
 
@@ -679,7 +688,9 @@
 
                 showLine: false,
 
-                yAxisID: "voltage"
+                yAxisID: "voltage",
+
+                hidden: hiddenSeries.Voltage
 
             });
 
@@ -738,7 +749,9 @@
 
                                 tension: 0,
 
-                                fill: false
+                                fill: false,
+
+                                hidden: hiddenSeries.Temperature
 
                             },
 
@@ -768,7 +781,9 @@
 
                                 tension: 0,
 
-                                fill: false
+                                fill: false,
+
+                                hidden: hiddenSeries.Humidity
 
                             },
 
@@ -835,20 +850,18 @@
                                     const chart = legend.chart;
 
                                     if (legendItem.text === "Temperature") {
-
                                         const temperatureDataset =
                                             chart.data.datasets.find(
-                                                dataset =>
-                                                    dataset.label === "Temperature"
+                                                dataset => dataset.label === "Temperature"
                                             );
 
                                         if (temperatureDataset) {
-
                                             temperatureDataset.hidden =
                                                 !temperatureDataset.hidden;
 
+                                            hiddenSeries.Temperature =
+                                                temperatureDataset.hidden;
                                         }
-
                                     }
 
 
@@ -878,6 +891,11 @@
                                                 dataset => dataset.hidden
                                             );
 
+                                        voltageDatasets.forEach(dataset => {
+                                            dataset.hidden = shouldHide;
+                                        });
+
+                                        hiddenSeries.Voltage = shouldHide;
 
                                         voltageDatasets.forEach(
                                             dataset => {
