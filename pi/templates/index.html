@@ -535,6 +535,21 @@
 
                 }));
 
+            /*
+            * =================================================
+            * Humidity data
+            * =================================================
+            */
+
+            const humidityData =
+                values.map(item => ({
+
+                    x: new Date(item.time),
+
+                    y: item.humidity
+
+                }));
+
 
             /*
              * =================================================
@@ -726,6 +741,35 @@
 
 
                             /*
+                            * ---------------------------------
+                            * Humidity
+                            * ---------------------------------
+                            */
+                            {
+
+                                label: "Humidity",
+
+                                data: humidityData,
+
+                                borderColor: "gray",
+
+                                backgroundColor: "gray",
+
+                                borderWidth: 1.5,
+
+                                pointRadius: 3,
+
+                                pointHoverRadius: 6,
+
+                                yAxisID: "humidity",
+
+                                tension: 0,
+
+                                fill: false
+
+                            },
+
+                            /*
                              * ---------------------------------
                              * Voltage
                              * ---------------------------------
@@ -775,6 +819,7 @@
 
                                         return (
                                             item.text === "Temperature" ||
+                                            item.text === "Humidity" ||
                                             item.text === "Voltage"
                                         );
 
@@ -841,6 +886,22 @@
 
                                     }
 
+                                    if (legendItem.text === "Humidity") {
+
+                                        const humidityDataset =
+                                            chart.data.datasets.find(
+                                                dataset =>
+                                                    dataset.label === "Humidity"
+                                            );
+
+                                        if (humidityDataset) {
+
+                                            humidityDataset.hidden =
+                                                !humidityDataset.hidden;
+
+                                        }
+
+                                    }
 
                                     chart.update();
 
@@ -911,6 +972,26 @@
 
                                             }
 
+                                            /*
+                                            * Humidity
+                                            */
+
+                                            if (
+                                                context.dataset.label ===
+                                                "Humidity"
+                                            ) {
+
+                                                return (
+
+                                                    "Humidity: " +
+
+                                                    context.parsed.y.toFixed(1) +
+
+                                                    " %"
+
+                                                );
+
+                                            }
 
                                             /*
                                              * Voltage
@@ -1047,6 +1128,44 @@
                                 ticks: {
 
                                     color: "green"
+
+                                }
+
+                            },
+
+                            /*
+                            * ---------------------------------
+                            * Humidity axis
+                            * ---------------------------------
+                            */
+
+                            humidity: {
+
+                                type: "linear",
+
+                                position: "right",
+
+                                title: {
+
+                                    display: true,
+
+                                    text: "Humidity (%)"
+
+                                },
+
+                                ticks: {
+
+                                    color: "gray"
+
+                                },
+
+                                min: 0,
+
+                                max: 100,
+
+                                grid: {
+
+                                    drawOnChartArea: false
 
                                 }
 

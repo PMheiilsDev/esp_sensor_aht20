@@ -29,6 +29,7 @@ def load_data():
                 data.append({
                     "time": datetime.fromisoformat(item["time"]),
                     "temperature": float(item["temperature"]),
+                    "humidity": float(item["humidity"]),
                     "vbat": float(item["vbat"]),
                     "power_save": bool(item["power_save"]),
                 })
@@ -126,6 +127,7 @@ def api_data():
         {
             "time": item["time"].isoformat(),
             "temperature": item["temperature"],
+            "humidity": item["humidity"],
             "vbat": item["vbat"],
             "power_save": item["power_save"],
         }
