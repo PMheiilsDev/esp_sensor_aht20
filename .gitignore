@@ -4,3 +4,5 @@ build
 .venv
 .vscode
 data.txt
+__pychache__
+pi/__pycache__
