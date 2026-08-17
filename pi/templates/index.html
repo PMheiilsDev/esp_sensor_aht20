@@ -378,10 +378,13 @@
                     await response.json();
 
                 if (!endManuallyChanged && values.length > 0) {
-                    const newestTime = values[values.length - 1].time;
+                    const newestTime = new Date(values[values.length - 1].time);
+                    newestTime.setMinutes(newestTime.getMinutes() + 1);
+
+                    const pad = n => String(n).padStart(2, "0");
 
                     document.getElementById("end").value =
-                        newestTime.slice(0, 16);
+                        `${newestTime.getFullYear()}-${pad(newestTime.getMonth() + 1)}-${pad(newestTime.getDate())}T${pad(newestTime.getHours())}:${pad(newestTime.getMinutes())}`;
                 }
 
                 console.log(
