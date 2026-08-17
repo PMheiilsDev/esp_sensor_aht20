@@ -971,23 +971,57 @@ static bool send_data_to_pi(
     );
 
 
-    // Give TCP/Wi-Fi time to transmit.
-    vTaskDelay(
-        pdMS_TO_TICKS(500)
-    );
+    // --------------------------------------------------------
+    // Wait for Pi ACK
+    // --------------------------------------------------------
 
+    char ack[16];
 
-    // Tell the Pi that we're finished sending.
-    shutdown(
+    struct timeval timeout = {
+        .tv_sec = 5,
+        .tv_usec = 0
+    };
+
+    setsockopt(
         sock,
-        SHUT_WR
+        SOL_SOCKET,
+        SO_RCVTIMEO,
+        &timeout,
+        sizeof(timeout)
+    );
+
+    int len = recv(
+        sock,
+        ack,
+        sizeof(ack) - 1,
+        0
+    );
+
+    if (len <= 0)
+    {
+        ESP_LOGE(
+            TAG,
+            "Did not receive ACK from Pi"
+        );
+
+        close(sock);
+        return false;
+    }
+
+    ack[len] = '\0';
+
+    ESP_LOGI(
+        TAG,
+        "Pi ACK: %s",
+        ack
     );
 
 
-    vTaskDelay(
-        pdMS_TO_TICKS(200)
-    );
+    // --------------------------------------------------------
+    // Finished
+    // --------------------------------------------------------
 
+    shutdown(sock, SHUT_WR);
 
     close(sock);
 
