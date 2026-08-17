@@ -183,6 +183,8 @@
         let updateInProgress = false;
 
 
+        let endManuallyChanged = false;
+
         /*
          * =====================================================
          * Update status text
@@ -210,6 +212,8 @@
              *
              * Force a complete request.
              */
+            endManuallyChanged = true;
+
             dataVersion = null;
 
             loadCharts(true);
@@ -301,18 +305,18 @@
                 /*
                  * Request data.
                  */
+                let url =
+                    `/api/data?start=${encodeURIComponent(start)}`;
+
+                if (endManuallyChanged) {
+                    url += `&end=${encodeURIComponent(end)}`;
+                }
+
                 const response = await fetch(
-
-                    `/api/data?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
-
+                    url,
                     {
                         method: "GET",
-
                         headers: headers,
-
-                        /*
-                         * Don't let the browser cache this request.
-                         */
                         cache: "no-store"
                     }
                 );
@@ -373,6 +377,12 @@
                 const values =
                     await response.json();
 
+                if (!endManuallyChanged && values.length > 0) {
+                    const newestTime = values[values.length - 1].time;
+
+                    document.getElementById("end").value =
+                        newestTime.slice(0, 16);
+                }
 
                 console.log(
                     "Received",
