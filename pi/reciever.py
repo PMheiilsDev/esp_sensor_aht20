@@ -21,28 +21,80 @@ def start():
 
         print(f"Connection from {addr}", flush=True)
 
-        conn.settimeout(2.0)
+        conn.settimeout(5.0)
 
         try:
-            data = conn.recv(1024)
 
-            print(f"Received: {data!r}", flush=True)
+            # ------------------------------------------------
+            # Receive until newline
+            # ------------------------------------------------
+
+            data = b""
+
+            while b"\n" not in data:
+
+                chunk = conn.recv(1024)
+
+                if not chunk:
+                    break
+
+                data += chunk
+
+            print(
+                f"Received: {data!r}",
+                flush=True
+            )
+
 
             if data:
-                with open(FILE, "ab") as f:
-                    s = data.decode("ascii").strip()
-                    j = json.loads(s)
 
-                    j = {
-                        "time": datetime.now().isoformat(),
-                        **j
-                    }
+                # Only use the first complete line.
+                line = data.split(b"\n", 1)[0]
+
+                s = line.decode("utf-8")
+
+                j = json.loads(s)
+
+
+                # ------------------------------------------------
+                # Add Pi timestamp
+                # ------------------------------------------------
+
+                j = {
+                    "time": datetime.now().isoformat(),
+                    **j
+                }
+
+
+                # ------------------------------------------------
+                # Store
+                # ------------------------------------------------
+
+                with open(FILE, "ab") as f:
 
                     f.write(
-                        (json.dumps(j) + "\n").encode("utf-8")
+                        (
+                            json.dumps(j) + "\n"
+                        ).encode("utf-8")
                     )
 
-                print(f"Written to {FILE}", flush=True)
+
+                print(
+                    f"Written to {FILE}",
+                    flush=True
+                )
+
+
+                # ------------------------------------------------
+                # ACK only after successful write
+                # ------------------------------------------------
+
+                conn.sendall(b"OK\n")
+
+                print(
+                    "ACK sent",
+                    flush=True
+                )
 
         except socket.timeout:
             print("Timeout waiting for data", flush=True)
