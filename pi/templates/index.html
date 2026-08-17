@@ -110,7 +110,10 @@
                 From
             </label>
 
-            <input type="date" id="start" min="{{ min_date }}" max="{{ max_date }}" value="{{ default_start }}">
+            <input type="datetime-local" id="start"
+                min="{{ min_date }}"
+                max="{{ max_date }}"
+                value="{{ default_start }}">
 
         </div>
 
@@ -121,7 +124,10 @@
                 To
             </label>
 
-            <input type="date" id="end" min="{{ min_date }}" max="{{ max_date }}" value="{{ default_end }}">
+            <input type="datetime-local" id="end"
+                min="{{ min_date }}"
+                max="{{ max_date }}"
+                value="{{ default_end }}">
 
         </div>
 

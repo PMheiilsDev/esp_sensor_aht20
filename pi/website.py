@@ -2,7 +2,7 @@ import json
 import os
 
 from flask import Flask, render_template, jsonify, request, make_response
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -53,20 +53,24 @@ def index():
             default_end="",
         )
 
-    dates = sorted({
-        item["time"].date().isoformat()
-        for item in data
-    })
+    # Full available data range
+    min_time = data[0]["time"]
+    max_time = data[-1]["time"]
 
-    # Last two available calendar days
-    last_days = dates[-2:]
+    # Default: last 24 hours
+    default_end = max_time
+    default_start = max_time - timedelta(hours=24)
+
+    # Don't go before the beginning of the available data
+    if default_start < min_time:
+        default_start = min_time
 
     return render_template(
         "index.html",
-        min_date=dates[0],
-        max_date=dates[-1],
-        default_start=last_days[0],
-        default_end=last_days[-1],
+        min_date=min_time.strftime("%Y-%m-%dT%H:%M"),
+        max_date=max_time.strftime("%Y-%m-%dT%H:%M"),
+        default_start=default_start.strftime("%Y-%m-%dT%H:%M"),
+        default_end=default_end.strftime("%Y-%m-%dT%H:%M"),
     )
 
 
@@ -79,8 +83,6 @@ def api_data():
 
     stat = os.stat(DATA_FILE)
 
-    # Nanoseconds gives us much better resolution than
-    # st_mtime on systems with coarse filesystem timestamps.
     version = f"{stat.st_mtime_ns}-{stat.st_size}"
 
     client_version = request.headers.get("If-None-Match")
@@ -90,7 +92,6 @@ def api_data():
         response.headers["ETag"] = version
         response.headers["Cache-Control"] = "no-cache"
         return response
-
 
     # --------------------------------------------------------
     # File changed -> load data
@@ -102,17 +103,24 @@ def api_data():
     end = request.args.get("end")
 
     if start:
-        data = [
-            item for item in data
-            if item["time"].date().isoformat() >= start
-        ]
+        try:
+            start_time = datetime.fromisoformat(start)
+            data = [
+                item for item in data
+                if item["time"] >= start_time
+            ]
+        except ValueError:
+            return jsonify({"error": "Invalid start datetime"}), 400
 
     if end:
-        data = [
-            item for item in data
-            if item["time"].date().isoformat() <= end
-        ]
-
+        try:
+            end_time = datetime.fromisoformat(end)
+            data = [
+                item for item in data
+                if item["time"] <= end_time
+            ]
+        except ValueError:
+            return jsonify({"error": "Invalid end datetime"}), 400
 
     result = [
         {
@@ -123,7 +131,6 @@ def api_data():
         }
         for item in data
     ]
-
 
     response = jsonify(result)
 
