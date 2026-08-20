@@ -3,6 +3,19 @@ import json
 from datetime import datetime
 from db import get_db
 
+class MockSensor:
+    def __init__(self):
+        self.base_temp = 21.5
+        self.base_hum = 45.0
+    @property
+    def temperature_humitity(self) -> tuple:
+        import random
+        self.base_temp += random.uniform(-0.1, 0.1)
+        self.base_hum += random.uniform(-0.2, 0.2)
+        self.base_temp = max(18.0, min(26.0, self.base_temp))
+        self.base_hum = max(30.0, min(70.0, self.base_hum))
+        return self.base_temp, self.base_hum
+
 # Try to import hardware board / ahtx0
 try:
     import board
@@ -10,6 +23,8 @@ try:
     HAS_HARDWARE = True
 except (ImportError, NotImplementedError):
     HAS_HARDWARE = False
+
+IS_MOCK = True
 
 if HAS_HARDWARE:
     class myAHTx0(adafruit_ahtx0.AHTx0):
@@ -21,34 +36,11 @@ if HAS_HARDWARE:
     try:
         i2c = board.I2C()
         sensor = myAHTx0(i2c)
+        IS_MOCK = False
     except Exception as e:
         print(f"Failed to initialize AHTx0 hardware: {e}. Using mock sensor.")
-        class MockSensor:
-            def __init__(self):
-                self.base_temp = 21.5
-                self.base_hum = 45.0
-            @property
-            def temperature_humitity(self) -> tuple:
-                import random
-                self.base_temp += random.uniform(-0.1, 0.1)
-                self.base_hum += random.uniform(-0.2, 0.2)
-                self.base_temp = max(18.0, min(26.0, self.base_temp))
-                self.base_hum = max(30.0, min(70.0, self.base_hum))
-                return self.base_temp, self.base_hum
         sensor = MockSensor()
 else:
-    class MockSensor:
-        def __init__(self):
-            self.base_temp = 21.5
-            self.base_hum = 45.0
-        @property
-        def temperature_humitity(self) -> tuple:
-            import random
-            self.base_temp += random.uniform(-0.1, 0.1)
-            self.base_hum += random.uniform(-0.2, 0.2)
-            self.base_temp = max(18.0, min(26.0, self.base_temp))
-            self.base_hum = max(30.0, min(70.0, self.base_hum))
-            return self.base_temp, self.base_hum
     sensor = MockSensor()
 
 avg_amt = 20
@@ -60,6 +52,14 @@ max_time_no_write = 60
 
 def start():
     print("AHTx0 sensor reader started.", flush=True)
+    if IS_MOCK:
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", flush=True)
+        print("WARNING: AHTx0 sensor reader is running in MOCK mode (simulating data)!", flush=True)
+        print("This means it failed to find physical sensor hardware or the required packages.", flush=True)
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", flush=True)
+    else:
+        print("SUCCESS: AHTx0 sensor reader is running in PHYSICAL HARDWARE mode!", flush=True)
+        
     temp_old = 0
     hum_old = 0 
     last_write = time.time()
