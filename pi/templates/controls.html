@@ -1,0 +1,40 @@
+<div class="controls">
+
+    <div class="control">
+
+        <label for="start">
+            From
+        </label>
+
+        <input type="datetime-local" id="start"
+            min="{{ min_date }}"
+            max="{{ max_date }}"
+            value="{{ default_start }}">
+
+    </div>
+
+
+    <div class="control">
+
+        <label for="end">
+            To
+        </label>
+
+        <input type="datetime-local" id="end"
+            min="{{ min_date }}"
+            max="{{ max_date }}"
+            value="{{ default_end }}">
+
+    </div>
+
+
+    <button type="button" onclick="changeDateRange()">
+        Update
+    </button>
+
+
+    <div class="status" id="status">
+        Loading...
+    </div>
+
+</div>

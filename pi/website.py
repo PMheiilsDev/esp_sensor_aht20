@@ -16,9 +16,23 @@ init_db()
 @app.route("/")
 def index():
     with get_db() as conn:
-        row = conn.execute("SELECT MIN(time) as min_t, MAX(time) as max_t FROM sensor_data").fetchone()
+        row_outdoor = conn.execute("SELECT MIN(time) as min_t, MAX(time) as max_t FROM sensor_data").fetchone()
+        row_indoor = conn.execute("SELECT MIN(time) as min_t, MAX(time) as max_t FROM indoor_sensor_data").fetchone()
 
-    if not row or row["min_t"] is None or row["max_t"] is None:
+    min_t_candidates = []
+    max_t_candidates = []
+
+    if row_outdoor and row_outdoor["min_t"]:
+        min_t_candidates.append(row_outdoor["min_t"])
+    if row_outdoor and row_outdoor["max_t"]:
+        max_t_candidates.append(row_outdoor["max_t"])
+
+    if row_indoor and row_indoor["min_t"]:
+        min_t_candidates.append(row_indoor["min_t"])
+    if row_indoor and row_indoor["max_t"]:
+        max_t_candidates.append(row_indoor["max_t"])
+
+    if not min_t_candidates or not max_t_candidates:
         return render_template(
             "index.html",
             min_date=None,
@@ -27,8 +41,8 @@ def index():
             default_end="",
         )
 
-    min_time = datetime.fromisoformat(row["min_t"])
-    max_time = datetime.fromisoformat(row["max_t"])
+    min_time = datetime.fromisoformat(min(min_t_candidates))
+    max_time = datetime.fromisoformat(max(max_t_candidates))
 
     # Default: last 24 hours
     default_end = max_time
@@ -72,7 +86,6 @@ def api_data():
     start = request.args.get("start")
     end = request.args.get("end")
 
-    query = "SELECT time, temperature, humidity, vbat, power_save FROM sensor_data"
     conditions = []
     params = []
 
@@ -94,15 +107,22 @@ def api_data():
         except ValueError:
             return jsonify({"error": "Invalid end datetime"}), 400
 
-    if conditions:
-        query += " WHERE " + " AND ".join(conditions)
+    query_outdoor = "SELECT time, temperature, humidity, vbat, power_save FROM sensor_data"
+    query_indoor = "SELECT time, temperature, humidity FROM indoor_sensor_data"
 
-    query += " ORDER BY time"
+    if conditions:
+        where_clause = " WHERE " + " AND ".join(conditions)
+        query_outdoor += where_clause
+        query_indoor += where_clause
+
+    query_outdoor += " ORDER BY time"
+    query_indoor += " ORDER BY time"
 
     with get_db() as conn:
-        rows = conn.execute(query, params).fetchall()
+        rows_outdoor = conn.execute(query_outdoor, params).fetchall()
+        rows_indoor = conn.execute(query_indoor, params).fetchall()
 
-    result = [
+    result_outdoor = [
         {
             "time": row["time"],
             "temperature": row["temperature"],
@@ -110,8 +130,22 @@ def api_data():
             "vbat": row["vbat"],
             "power_save": bool(row["power_save"]),
         }
-        for row in rows
+        for row in rows_outdoor
     ]
+
+    result_indoor = [
+        {
+            "time": row["time"],
+            "temperature": row["temperature"],
+            "humidity": row["humidity"],
+        }
+        for row in rows_indoor
+    ]
+
+    result = {
+        "outdoor": result_outdoor,
+        "indoor": result_indoor
+    }
 
     response = jsonify(result)
 

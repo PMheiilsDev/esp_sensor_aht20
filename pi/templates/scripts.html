@@ -1,0 +1,1201 @@
+<script>
+
+    /*
+     * =====================================================
+     * Global state
+     * =====================================================
+     */
+
+    let chart = null;
+
+    /*
+     * Version received from Flask.
+     *
+     * This is the ETag of DB_FILE.
+     *
+     * If the file hasn't changed, Flask returns HTTP 304
+     * and doesn't transmit the graph data again.
+     */
+    let dataVersion = null;
+
+    /*
+     * Prevent two requests from running at the same time.
+     */
+    let updateInProgress = false;
+
+
+    let endManuallyChanged = false;
+
+
+    let hiddenSeries = {
+        Temperature_Indoor: false,
+        Temperature_Outdoor: false,
+        Humidity_Indoor: false,
+        Humidity_Outdoor: false,
+        Voltage: true
+    };
+
+    /*
+     * =====================================================
+     * Update status text
+     * =====================================================
+     */
+
+    function setStatus(text) {
+
+        document.getElementById("status").textContent = text;
+
+    }
+
+
+    /*
+     * =====================================================
+     * User changed the date range
+     * =====================================================
+     */
+
+    function changeDateRange() {
+
+        /*
+         * The date range changed, so the previous ETag
+         * cannot be trusted for this request.
+         *
+         * Force a complete request.
+         */
+        endManuallyChanged = true;
+
+        dataVersion = null;
+
+        loadCharts(true);
+
+    }
+
+
+    /*
+     * =====================================================
+     * Load data from Flask
+     * =====================================================
+     */
+
+    async function loadCharts(force = false) {
+
+        /*
+         * Don't start another request while one is running.
+         */
+        if (updateInProgress) {
+            return;
+        }
+
+
+        const start =
+            document.getElementById("start").value;
+
+        const end =
+            document.getElementById("end").value;
+
+
+        /*
+         * Make sure dates exist.
+         */
+        if (!start || !end) {
+
+            setStatus("Select a date range");
+
+            return;
+        }
+
+
+        /*
+         * Validate date range.
+         */
+        if (start > end) {
+
+            setStatus("Invalid date range");
+
+            alert(
+                "Start date must be before or equal to end date."
+            );
+
+            return;
+        }
+
+
+        updateInProgress = true;
+
+
+        try {
+
+            /*
+             * Headers sent to Flask.
+             */
+            const headers = {};
+
+
+            /*
+             * If we already have the current version,
+             * tell Flask about it.
+             *
+             * Flask can then return:
+             *
+             *     304 Not Modified
+             *
+             * without sending the data again.
+             */
+            if (!force && dataVersion !== null) {
+
+                headers["If-None-Match"] =
+                    dataVersion;
+
+            }
+
+
+            setStatus("Checking for updates...");
+
+
+            /*
+             * Request data.
+             */
+            let url =
+                `/api/data?start=${encodeURIComponent(start)}`;
+
+            if (endManuallyChanged) {
+                url += `&end=${encodeURIComponent(end)}`;
+            }
+
+            const response = await fetch(
+                url,
+                {
+                    method: "GET",
+                    headers: headers,
+                    cache: "no-store"
+                }
+            );
+
+
+            /*
+             * =================================================
+             * Nothing changed
+             * =================================================
+             */
+
+            if (response.status === 304) {
+
+                setStatus(
+                    "No changes · " +
+                    new Date().toLocaleTimeString()
+                );
+
+                console.log(
+                    "Data unchanged."
+                );
+
+                return;
+            }
+
+
+            /*
+             * =================================================
+             * HTTP error
+             * =================================================
+             */
+
+            if (!response.ok) {
+
+                throw new Error(
+                    `Server returned HTTP ${response.status}`
+                );
+
+            }
+
+
+            /*
+             * =================================================
+             * Data changed
+             * =================================================
+             */
+
+            /*
+             * Save the new ETag.
+             */
+            dataVersion =
+                response.headers.get("ETag");
+
+
+            /*
+             * Read JSON data.
+             */
+            const data =
+                await response.json();
+
+            const outdoorValues = data.outdoor || [];
+            const indoorValues = data.indoor || [];
+
+            if (!endManuallyChanged && (outdoorValues.length > 0 || indoorValues.length > 0)) {
+                let newestStr = "";
+                if (outdoorValues.length > 0) {
+                    newestStr = outdoorValues[outdoorValues.length - 1].time;
+                }
+                if (indoorValues.length > 0) {
+                    const indoorNewest = indoorValues[indoorValues.length - 1].time;
+                    if (!newestStr || indoorNewest > newestStr) {
+                        newestStr = indoorNewest;
+                    }
+                }
+                
+                if (newestStr) {
+                    const newestTime = new Date(newestStr);
+                    newestTime.setMinutes(newestTime.getMinutes() + 1);
+
+                    const pad = n => String(n).padStart(2, "0");
+
+                    document.getElementById("end").value =
+                        `${newestTime.getFullYear()}-${pad(newestTime.getMonth() + 1)}-${pad(newestTime.getDate())}T${pad(newestTime.getHours())}:${pad(newestTime.getMinutes())}`;
+                }
+            }
+
+            console.log(
+                "Received outdoor:",
+                outdoorValues.length,
+                "points, indoor:",
+                indoorValues.length,
+                "points"
+            );
+
+
+            /*
+             * Draw the graph.
+             */
+            drawChart(outdoorValues, indoorValues);
+
+
+            setStatus(
+                "Updated · " +
+                new Date().toLocaleTimeString()
+            );
+
+
+        } catch (error) {
+
+            console.error(
+                "Failed to update data:",
+                error
+            );
+
+
+            setStatus(
+                "Update failed"
+            );
+
+
+            /*
+             * Show error only if there isn't already
+             * a graph displayed.
+             */
+            if (!chart) {
+
+                document.getElementById(
+                    "charts"
+                ).innerHTML = `
+
+                    <div class="error">
+
+                        Failed to load data:
+                        ${escapeHtml(error.message)}
+
+                    </div>
+
+                `;
+
+            }
+
+        } finally {
+
+            updateInProgress = false;
+
+        }
+
+    }
+
+
+    /*
+     * =====================================================
+     * Draw the graph
+     * =====================================================
+     */
+
+    function drawChart(outdoorValues, indoorValues) {
+
+
+        /*
+         * Destroy previous Chart.js graph.
+         */
+        if (chart) {
+
+            chart.destroy();
+
+            chart = null;
+
+        }
+
+
+        const container =
+            document.getElementById("charts");
+
+
+        /*
+         * No data.
+         */
+        if (outdoorValues.length === 0 && indoorValues.length === 0) {
+
+            container.innerHTML = `
+
+                <div class="message">
+
+                    No data found for the selected
+                    date range.
+
+                </div>
+
+            `;
+
+            return;
+
+        }
+
+
+        /*
+         * Create chart container.
+         */
+        container.innerHTML = `
+
+            <div class="chart-card">
+
+                <h2>
+                    ${escapeHtml(
+            document.getElementById("start").value
+        )}
+                    →
+                    ${escapeHtml(
+            document.getElementById("end").value
+        )}
+                </h2>
+
+                <div class="chart-container">
+
+                    <canvas id="mainChart"></canvas>
+
+                </div>
+
+            </div>
+
+        `;
+
+
+        /*
+         * =================================================
+         * Temperature datasets
+         * =================================================
+         */
+
+        const tempIndoorData =
+            indoorValues.map(item => ({
+                x: new Date(item.time),
+                y: item.temperature
+            }));
+
+        const tempOutdoorData =
+            outdoorValues.map(item => ({
+                x: new Date(item.time),
+                y: item.temperature
+            }));
+
+        /*
+        * =================================================
+        * Humidity datasets
+        * =================================================
+        */
+
+        const humIndoorData =
+            indoorValues.map(item => ({
+                x: new Date(item.time),
+                y: item.humidity
+            }));
+
+        const humOutdoorData =
+            outdoorValues.map(item => ({
+                x: new Date(item.time),
+                y: item.humidity
+            }));
+
+
+        /*
+         * =================================================
+         * Voltage line segments
+         *
+         * Each segment gets its own color depending on
+         * power_save.
+         *
+         * blue = false
+         * red  = true
+         * =================================================
+         */
+
+        const voltageDatasets = [];
+
+
+        for (
+            let i = 0;
+            i < outdoorValues.length - 1;
+            i++
+        ) {
+
+            const color =
+                outdoorValues[i].power_save
+                    ? "red"
+                    : "blue";
+
+
+            voltageDatasets.push({
+
+                /*
+                 * Empty label because these are individual
+                 * line segments.
+                 */
+                label: "",
+
+                data: [
+
+                    {
+                        x: new Date(
+                            outdoorValues[i].time
+                        ),
+
+                        y: outdoorValues[i].vbat
+                    },
+
+                    {
+                        x: new Date(
+                            outdoorValues[i + 1].time
+                        ),
+
+                        y: outdoorValues[i + 1].vbat
+                    }
+
+                ],
+
+                borderColor: color,
+
+                backgroundColor: color,
+
+                borderWidth: 2,
+
+                pointRadius: 0,
+
+                pointHoverRadius: 0,
+
+                fill: false,
+
+                tension: 0,
+
+                yAxisID: "voltage",
+
+                hidden: hiddenSeries.Voltage
+
+            });
+
+        }
+
+
+        /*
+         * =================================================
+         * Voltage points
+         * =================================================
+         */
+
+        const voltagePoints =
+            outdoorValues.map(item => ({
+
+                x: new Date(item.time),
+
+                y: item.vbat,
+
+                powerSave: item.power_save
+
+            }));
+
+
+        voltageDatasets.push({
+
+            label: "Voltage",
+
+            data: voltagePoints,
+
+            borderColor: "transparent",
+
+            backgroundColor: context => {
+
+                const point =
+                    context.raw;
+
+
+                if (!point) {
+                    return "blue";
+                }
+
+
+                return point.powerSave
+                    ? "red"
+                    : "blue";
+
+            },
+
+            pointRadius: 4,
+
+            pointHoverRadius: 7,
+
+            showLine: false,
+
+            yAxisID: "voltage",
+
+            hidden: hiddenSeries.Voltage
+
+        });
+
+
+        /*
+         * =================================================
+         * Create Chart.js graph
+         * =================================================
+         */
+
+        const canvas =
+            document.getElementById(
+                "mainChart"
+            );
+
+
+        chart = new Chart(
+
+            canvas,
+
+            {
+
+                type: "line",
+
+
+                data: {
+
+                    datasets: [
+
+                        /*
+                         * ---------------------------------
+                         * Temperature
+                         * ---------------------------------
+                         */
+
+                        {
+
+                            label: "Temperature_Indoor",
+
+                            data:
+                                tempIndoorData,
+
+                            borderColor: "limegreen",
+
+                            backgroundColor:
+                                "limegreen",
+
+                            borderWidth: 1.5,
+
+                            pointRadius: 3,
+
+                            pointHoverRadius: 6,
+
+                            yAxisID:
+                                "temperature",
+
+                            tension: 0,
+
+                            fill: false,
+
+                            hidden: hiddenSeries.Temperature_Indoor
+
+                        },
+
+                        {
+
+                            label: "Temperature_Outdoor",
+
+                            data:
+                                tempOutdoorData,
+
+                            borderColor: "darkgreen",
+
+                            backgroundColor:
+                                "darkgreen",
+
+                            borderWidth: 1.5,
+
+                            pointRadius: 3,
+
+                            pointHoverRadius: 6,
+
+                            yAxisID:
+                                "temperature",
+
+                            tension: 0,
+
+                            fill: false,
+
+                            hidden: hiddenSeries.Temperature_Outdoor
+
+                        },
+
+
+                        /*
+                        * ---------------------------------
+                        * Humidity
+                        * ---------------------------------
+                        */
+                        {
+
+                            label: "Humidity_Indoor",
+
+                            data: humIndoorData,
+
+                            borderColor: "orange",
+
+                            backgroundColor: "orange",
+
+                            borderWidth: 1.5,
+
+                            pointRadius: 3,
+
+                            pointHoverRadius: 6,
+
+                            yAxisID: "humidity",
+
+                            tension: 0,
+
+                            fill: false,
+
+                            hidden: hiddenSeries.Humidity_Indoor
+
+                        },
+
+                        {
+
+                            label: "Humidity_Outdoor",
+
+                            data: humOutdoorData,
+
+                            borderColor: "gray",
+
+                            backgroundColor: "gray",
+
+                            borderWidth: 1.5,
+
+                            pointRadius: 3,
+
+                            pointHoverRadius: 6,
+
+                            yAxisID: "humidity",
+
+                            tension: 0,
+
+                            fill: false,
+
+                            hidden: hiddenSeries.Humidity_Outdoor
+
+                        },
+
+                        /*
+                         * ---------------------------------
+                         * Voltage
+                         * ---------------------------------
+                         */
+
+                        ...voltageDatasets
+
+                    ]
+
+                },
+
+
+                options: {
+
+                    responsive: true,
+
+                    maintainAspectRatio: false,
+
+
+                    /*
+                     * Show the nearest point when
+                     * hovering.
+                     */
+                    interaction: {
+
+                        mode: "nearest",
+
+                        intersect: false
+
+                    },
+
+
+                    plugins: {
+
+
+                        /*
+                         * ---------------------------------
+                         * Legend
+                         * ---------------------------------
+                         */
+
+                        legend: {
+
+                            labels: {
+
+                                filter: function (item) {
+
+                                    return (
+                                        item.text === "Temperature_Indoor" ||
+                                        item.text === "Temperature_Outdoor" ||
+                                        item.text === "Humidity_Indoor" ||
+                                        item.text === "Humidity_Outdoor" ||
+                                        item.text === "Voltage"
+                                    );
+
+                                }
+
+                            },
+
+                            onClick: function (event, legendItem, legend) {
+
+                                const chart = legend.chart;
+                                const label = legendItem.text;
+
+                                if (label === "Temperature_Indoor" ||
+                                    label === "Temperature_Outdoor" ||
+                                    label === "Humidity_Indoor" ||
+                                    label === "Humidity_Outdoor") {
+                                    
+                                    const dataset = chart.data.datasets.find(
+                                        ds => ds.label === label
+                                    );
+
+                                    if (dataset) {
+                                        dataset.hidden = !dataset.hidden;
+                                        hiddenSeries[label] = dataset.hidden;
+                                    }
+                                }
+
+                                if (label === "Voltage") {
+
+                                    /*
+                                     * Toggle ALL voltage datasets:
+                                     *
+                                     * - colored voltage line segments
+                                     * - voltage marker dataset
+                                     */
+
+                                    const voltageDatasets =
+                                        chart.data.datasets.filter(
+                                            dataset =>
+                                                dataset.yAxisID === "voltage"
+                                        );
+
+
+                                    /*
+                                     * Determine the new visibility from the
+                                     * first voltage dataset.
+                                     */
+
+                                    const shouldHide =
+                                        !voltageDatasets.some(
+                                            dataset => dataset.hidden
+                                        );
+
+                                    voltageDatasets.forEach(dataset => {
+                                        dataset.hidden = shouldHide;
+                                    });
+
+                                    hiddenSeries.Voltage = shouldHide;
+
+                                }
+
+                                chart.update();
+
+                            }
+
+                        },
+
+
+                        /*
+                         * ---------------------------------
+                         * Tooltip
+                         * ---------------------------------
+                         */
+
+                        tooltip: {
+
+                            callbacks: {
+
+                                title:
+                                    function (context) {
+
+                                        if (
+                                            !context.length
+                                        ) {
+                                            return "";
+                                        }
+
+
+                                        const date =
+                                            new Date(
+                                                context[0]
+                                                    .parsed
+                                                    .x
+                                            );
+
+
+                                        return date
+                                            .toLocaleString();
+
+                                    },
+
+
+                                label:
+                                    function (context) {
+
+                                        const label = context.dataset.label;
+
+                                        /*
+                                         * Temperature
+                                         */
+
+                                        if (
+                                            label === "Temperature_Indoor" ||
+                                            label === "Temperature_Outdoor"
+                                        ) {
+
+                                            return (
+
+                                                label + ": " +
+
+                                                context.parsed
+                                                    .y
+                                                    .toFixed(1) +
+
+                                                " °C"
+
+                                            );
+
+                                        }
+
+                                        /*
+                                        * Humidity
+                                        */
+
+                                        if (
+                                            label === "Humidity_Indoor" ||
+                                            label === "Humidity_Outdoor"
+                                        ) {
+
+                                            return (
+
+                                                label + ": " +
+
+                                                context.parsed.y.toFixed(1) +
+
+                                                " %"
+
+                                            );
+
+                                        }
+
+                                        /*
+                                         * Voltage
+                                         */
+
+                                        if (
+                                            label === "Voltage"
+                                        ) {
+
+                                            const powerSave =
+                                                context.raw
+                                                    .powerSave;
+
+
+                                            return [
+
+                                                "Voltage: " +
+
+                                                context.parsed
+                                                    .y
+                                                    .toFixed(3) +
+
+                                                " V",
+
+                                                "Power save: " +
+
+                                                powerSave
+
+                                            ];
+
+                                        }
+
+
+                                        return null;
+
+                                    }
+
+                            }
+
+                        }
+
+                    },
+
+
+                    scales: {
+
+
+                        /*
+                         * ---------------------------------
+                         * X axis
+                         * ---------------------------------
+                         */
+
+                        x: {
+
+                            type: "time",
+
+                            time: {
+
+                                /*
+                                 * Chart.js automatically
+                                 * chooses the appropriate
+                                 * unit depending on the
+                                 * selected range.
+                                 */
+
+                                tooltipFormat:
+                                    "yyyy-MM-dd HH:mm:ss",
+
+                                displayFormats: {
+
+                                    millisecond:
+                                        "HH:mm:ss",
+
+                                    second:
+                                        "HH:mm:ss",
+
+                                    minute:
+                                        "HH:mm",
+
+                                    hour:
+                                        "MM-dd HH:mm",
+
+                                    day:
+                                        "yyyy-MM-dd",
+
+                                    week:
+                                        "yyyy-MM-dd",
+
+                                    month:
+                                        "yyyy-MM"
+
+                                }
+
+                            },
+
+
+                            title: {
+
+                                display: true,
+
+                                text: "Time"
+
+                            }
+
+                        },
+
+
+                        /*
+                         * ---------------------------------
+                         * Temperature axis
+                         * ---------------------------------
+                         */
+
+                        temperature: {
+
+                            type: "linear",
+
+                            position: "left",
+
+
+                            title: {
+
+                                display: true,
+
+                                text:
+                                    "Temperature (°C)"
+
+                            },
+
+
+                            ticks: {
+
+                                color: "darkgreen"
+
+                            }
+
+                        },
+
+                        /*
+                        * ---------------------------------
+                        * Humidity axis
+                        * ---------------------------------
+                        */
+
+                        humidity: {
+
+                            type: "linear",
+
+                            position: "right",
+
+                            title: {
+
+                                display: true,
+
+                                text: "Humidity (%)"
+
+                            },
+
+                            ticks: {
+
+                                color: "gray"
+
+                            },
+
+                            min: 0,
+
+                            max: 100,
+
+                            grid: {
+
+                                drawOnChartArea: false
+
+                            }
+
+                        },
+
+
+                        /*
+                         * ---------------------------------
+                         * Voltage axis
+                         * ---------------------------------
+                         */
+
+                        voltage: {
+
+                            type: "linear",
+
+                            position: "right",
+
+
+                            title: {
+
+                                display: true,
+
+                                text:
+                                    "Battery Voltage (V)"
+
+                            },
+
+
+                            grid: {
+
+                                drawOnChartArea:
+                                    false
+
+                            }
+
+                        }
+
+                    }
+
+                }
+
+            }
+
+        );
+
+    }
+
+
+    /*
+     * =====================================================
+     * Escape HTML
+     *
+     * Used for values inserted into HTML.
+     * =====================================================
+     */
+
+    function escapeHtml(value) {
+
+        const div =
+            document.createElement("div");
+
+        div.textContent =
+            value;
+
+        return div.innerHTML;
+
+    }
+
+
+    /*
+     * =====================================================
+     * Initial load
+     * =====================================================
+     *
+     * "true" means don't use a previous ETag because
+     * this is the first request.
+     */
+
+    loadCharts(true);
+
+
+    /*
+     * =====================================================
+     * Automatic update
+     * =====================================================
+     *
+     * Check once every 30 seconds.
+     *
+     * If DB_FILE hasn't changed:
+     *
+     *     Flask -> HTTP 304
+     *
+     * No JSON data is transmitted.
+     *
+     * If DB_FILE changed:
+     *
+     *     Flask -> new JSON
+     *
+     * Graph is redrawn.
+     */
+
+    setInterval(
+
+        function () {
+
+            loadCharts(false);
+
+        },
+
+        30 * 1000
+
+    );
+
+</script>

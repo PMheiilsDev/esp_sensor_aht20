@@ -6,6 +6,7 @@ from datetime import datetime
 from conf import DB_FILE
 
 OLD_DATA_FILE = "data.txt"
+OLD_INDOOR_DATA_FILE = "data.jsonl"
 
 
 def get_db():
@@ -31,9 +32,71 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_sensor_data_time 
             ON sensor_data(time);
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS indoor_sensor_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                time TEXT NOT NULL,
+                temperature REAL NOT NULL,
+                humidity REAL NOT NULL
+            );
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_indoor_sensor_data_time 
+            ON indoor_sensor_data(time);
+        """)
         conn.commit()
 
     migrate_old_data()
+    migrate_old_indoor_data()
+
+
+def migrate_old_indoor_data():
+    if not os.path.exists(OLD_INDOOR_DATA_FILE):
+        return
+
+    print(f"Found old indoor data file '{OLD_INDOOR_DATA_FILE}'. Starting migration to SQLite...", flush=True)
+
+    records = []
+    with open(OLD_INDOOR_DATA_FILE, "r", encoding="utf-8") as f:
+        for line_number, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+                timestamp = int(item["time"])
+                # Convert unix timestamp to ISO format string
+                time_str = datetime.fromtimestamp(timestamp).isoformat()
+                temp = float(item["temperature"])
+                hum = float(item["humidity"])
+
+                records.append((time_str, temp, hum))
+            except Exception as e:
+                print(f"Skipping line {line_number} in old indoor data during migration: {e}", flush=True)
+
+    if records:
+        try:
+            with get_db() as conn:
+                conn.executemany(
+                    "INSERT INTO indoor_sensor_data (time, temperature, humidity) VALUES (?, ?, ?)",
+                    records
+                )
+                conn.commit()
+            print(f"Successfully migrated {len(records)} records from '{OLD_INDOOR_DATA_FILE}' to SQLite.", flush=True)
+        except Exception as e:
+            print(f"Error during indoor migration transaction: {e}", flush=True)
+            return
+
+    # Rename old file to avoid migrating again
+    try:
+        backup_file = OLD_INDOOR_DATA_FILE + ".bak"
+        if os.path.exists(backup_file):
+            timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
+            backup_file = f"{OLD_INDOOR_DATA_FILE}.{timestamp_str}.bak"
+        os.rename(OLD_INDOOR_DATA_FILE, backup_file)
+        print(f"Renamed old indoor data file to '{backup_file}'.", flush=True)
+    except Exception as e:
+        print(f"Failed to rename old indoor data file: {e}", flush=True)
 
 
 def migrate_old_data():

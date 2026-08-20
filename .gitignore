@@ -5,6 +5,8 @@ build
 .vscode
 data.txt
 data.txt.bak
+data.jsonl
+data.jsonl.bak
 sensor_data.db*
 __pychache__
 pi/__pycache__
