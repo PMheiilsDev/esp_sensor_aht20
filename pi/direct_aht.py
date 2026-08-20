@@ -99,14 +99,6 @@ def start():
                 print(f"Direct AHT sensor: Written to DB -> temp: {temp}, hum: {hum}", flush=True)
             except Exception as e:
                 print(f"Direct AHT sensor error writing to DB: {e}", flush=True)
-
-            # Keep writing to local jsonl file for backward compatibility
-            d = {"time": now, "temperature": temp, "humidity": hum}
-            try:
-                with open("data.jsonl", "a") as f:
-                    f.write(f"{json.dumps(d)}\n")
-            except Exception as e:
-                print(f"Direct AHT sensor error writing to file: {e}", flush=True)
             
         temp_old = temp
         hum_old = hum
