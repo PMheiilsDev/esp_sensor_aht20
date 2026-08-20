@@ -201,8 +201,8 @@ def api_data():
         if conditions:
             where_clause = " WHERE " + " AND ".join(conditions)
 
-        query_outdoor += where_clause + " GROUP BY time ORDER BY time"
-        query_indoor += where_clause + " GROUP BY time ORDER BY time"
+        query_outdoor += where_clause + " GROUP BY 1 ORDER BY 1"
+        query_indoor += where_clause + " GROUP BY 1 ORDER BY 1"
 
         params_outdoor = [interval, interval] + params
         params_indoor = [interval, interval] + params
