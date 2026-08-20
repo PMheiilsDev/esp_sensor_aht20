@@ -4,5 +4,7 @@ build
 .venv
 .vscode
 data.txt
+data.txt.bak
+sensor_data.db*
 __pychache__
 pi/__pycache__

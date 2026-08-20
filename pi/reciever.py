@@ -2,9 +2,12 @@ import socket
 from datetime import datetime
 import json
 
-from conf import HOST, PORT, FILE
+from conf import HOST, PORT, DB_FILE
+from db import init_db, get_db
 
 def start():
+
+    init_db()
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -70,17 +73,22 @@ def start():
                 # Store
                 # ------------------------------------------------
 
-                with open(FILE, "ab") as f:
-
-                    f.write(
+                with get_db() as conn:
+                    conn.execute(
+                        "INSERT INTO sensor_data (time, temperature, humidity, vbat, power_save) VALUES (?, ?, ?, ?, ?)",
                         (
-                            json.dumps(j) + "\n"
-                        ).encode("utf-8")
+                            j["time"],
+                            float(j["temperature"]),
+                            float(j["humidity"]),
+                            float(j["vbat"]),
+                            1 if j["power_save"] else 0
+                        )
                     )
+                    conn.commit()
 
 
                 print(
-                    f"Written to {FILE}",
+                    f"Written to {DB_FILE}",
                     flush=True
                 )
 

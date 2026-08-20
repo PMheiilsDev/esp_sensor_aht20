@@ -4,48 +4,21 @@ import os
 from flask import Flask, render_template, jsonify, request, make_response
 from datetime import datetime, timedelta
 
+from conf import DB_FILE
+from db import init_db, get_db
+
 app = Flask(__name__)
 
-DATA_FILE = "data.txt"
-
-
-def load_data():
-    data = []
-
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        for line_number, line in enumerate(f, 1):
-            line = line.strip()
-
-            if not line:
-                continue
-
-            try:
-                item = json.loads(line)
-            except json.JSONDecodeError as e:
-                print(f"Skipping line {line_number}: {e}")
-                continue
-
-            try:
-                data.append({
-                    "time": datetime.fromisoformat(item["time"]),
-                    "temperature": float(item["temperature"]),
-                    "humidity": float(item["humidity"]),
-                    "vbat": float(item["vbat"]),
-                    "power_save": bool(item["power_save"]),
-                })
-            except (KeyError, ValueError, TypeError) as e:
-                print(f"Skipping line {line_number}: {e}")
-
-    data.sort(key=lambda x: x["time"])
-
-    return data
+# Initialize database (creates table/indexes & migrates old data if any)
+init_db()
 
 
 @app.route("/")
 def index():
-    data = load_data()
+    with get_db() as conn:
+        row = conn.execute("SELECT MIN(time) as min_t, MAX(time) as max_t FROM sensor_data").fetchone()
 
-    if not data:
+    if not row or row["min_t"] is None or row["max_t"] is None:
         return render_template(
             "index.html",
             min_date=None,
@@ -54,9 +27,8 @@ def index():
             default_end="",
         )
 
-    # Full available data range
-    min_time = data[0]["time"]
-    max_time = data[-1]["time"]
+    min_time = datetime.fromisoformat(row["min_t"])
+    max_time = datetime.fromisoformat(row["max_t"])
 
     # Default: last 24 hours
     default_end = max_time
@@ -79,12 +51,11 @@ def index():
 def api_data():
 
     # --------------------------------------------------------
-    # Check whether data.txt changed
+    # Check whether the SQLite database changed
     # --------------------------------------------------------
 
-    stat = os.stat(DATA_FILE)
-
-    version = f"{stat.st_mtime_ns}-{stat.st_size}"
+    stat = os.stat(DB_FILE) if os.path.exists(DB_FILE) else None
+    version = f"{stat.st_mtime_ns}-{stat.st_size}" if stat else "0-0"
 
     client_version = request.headers.get("If-None-Match")
 
@@ -95,43 +66,51 @@ def api_data():
         return response
 
     # --------------------------------------------------------
-    # File changed -> load data
+    # Database changed -> query records
     # --------------------------------------------------------
-
-    data = load_data()
 
     start = request.args.get("start")
     end = request.args.get("end")
 
+    query = "SELECT time, temperature, humidity, vbat, power_save FROM sensor_data"
+    conditions = []
+    params = []
+
     if start:
         try:
-            start_time = datetime.fromisoformat(start)
-            data = [
-                item for item in data
-                if item["time"] >= start_time
-            ]
+            # Validate format
+            datetime.fromisoformat(start)
+            conditions.append("time >= ?")
+            params.append(start)
         except ValueError:
             return jsonify({"error": "Invalid start datetime"}), 400
 
     if end:
         try:
-            end_time = datetime.fromisoformat(end)
-            data = [
-                item for item in data
-                if item["time"] <= end_time
-            ]
+            # Validate format
+            datetime.fromisoformat(end)
+            conditions.append("time <= ?")
+            params.append(end)
         except ValueError:
             return jsonify({"error": "Invalid end datetime"}), 400
 
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    query += " ORDER BY time"
+
+    with get_db() as conn:
+        rows = conn.execute(query, params).fetchall()
+
     result = [
         {
-            "time": item["time"].isoformat(),
-            "temperature": item["temperature"],
-            "humidity": item["humidity"],
-            "vbat": item["vbat"],
-            "power_save": item["power_save"],
+            "time": row["time"],
+            "temperature": row["temperature"],
+            "humidity": row["humidity"],
+            "vbat": row["vbat"],
+            "power_save": bool(row["power_save"]),
         }
-        for item in data
+        for row in rows
     ]
 
     response = jsonify(result)
