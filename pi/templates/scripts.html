@@ -96,6 +96,9 @@
         const samples =
             document.getElementById("samples").value;
 
+        const keep_raw =
+            document.getElementById("keep_raw").checked;
+
 
         /*
          * Make sure dates exist.
@@ -159,7 +162,7 @@
              * Request data.
              */
             let url =
-                `/api/data?start=${encodeURIComponent(start)}&samples=${encodeURIComponent(samples)}`;
+                `/api/data?start=${encodeURIComponent(start)}&samples=${encodeURIComponent(samples)}&keep_raw=${encodeURIComponent(keep_raw)}`;
 
             if (endManuallyChanged) {
                 url += `&end=${encodeURIComponent(end)}`;

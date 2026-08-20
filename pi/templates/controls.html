@@ -26,11 +26,7 @@
             value="{{ default_end }}">
 
     </div>
-    
 
-    <button type="button" onclick="changeDateRange()">
-        Update
-    </button>
 
     <div class="control">
 
@@ -39,16 +35,30 @@
         </label>
 
         <select id="samples" onchange="changeDateRange()">
-            <option value="25">25 points</option>
-            <option value="50">50 points</option>
-            <option value="100" selected>100 points (Default)</option>
+            <option value="100">100 points</option>
             <option value="250">250 points</option>
-            <option value="500">500 points</option>
+            <option value="500" selected>500 points (Default)</option>
+            <option value="1000">1000 points</option>
+            <option value="2000">2000 points</option>
         </select>
 
     </div>
 
 
+    <div class="control" style="flex-direction: row; align-items: center; gap: 8px; margin-bottom: 5px;">
+
+        <input type="checkbox" id="keep_raw" onchange="changeDateRange()" checked>
+
+        <label for="keep_raw" style="cursor: pointer;">
+            Keep Recent Points Raw
+        </label>
+
+    </div>
+
+
+    <button type="button" onclick="changeDateRange()">
+        Update
+    </button>
 
 
     <div class="status" id="status">

@@ -85,30 +85,7 @@ def api_data():
 
     start = request.args.get("start")
     end = request.args.get("end")
-
-    conditions = []
-    params = []
-
-    if start:
-        try:
-            # Validate format
-            datetime.fromisoformat(start)
-            conditions.append("time >= ?")
-            params.append(start)
-        except ValueError:
-            return jsonify({"error": "Invalid start datetime"}), 400
-
-    if end:
-        try:
-            # Validate format
-            datetime.fromisoformat(end)
-            conditions.append("time <= ?")
-            params.append(end)
-        except ValueError:
-            return jsonify({"error": "Invalid end datetime"}), 400
-
-    query_outdoor = "SELECT time, temperature, humidity, vbat, power_save FROM sensor_data"
-    query_indoor = "SELECT time, temperature, humidity FROM indoor_sensor_data"
+    keep_raw = request.args.get("keep_raw", "true").lower() == "true"
 
     try:
         samples = int(request.args.get("samples", 500))
@@ -167,69 +144,205 @@ def api_data():
     duration_seconds = (end_dt - start_dt).total_seconds() if start_dt and end_dt else 0
     interval = int(duration_seconds / samples) if samples > 0 else 0
 
+    start_str = start_dt.isoformat() if start_dt else start
+    end_str = end_dt.isoformat() if end_dt else end
+
     if interval <= 30:
-        if conditions:
-            where_clause = " WHERE " + " AND ".join(conditions)
-            query_outdoor += where_clause
-            query_indoor += where_clause
-
-        query_outdoor += " ORDER BY time"
-        query_indoor += " ORDER BY time"
+        query_outdoor = "SELECT time, temperature, humidity, vbat, power_save FROM sensor_data WHERE time >= ? AND time <= ? ORDER BY time"
+        query_indoor = "SELECT time, temperature, humidity FROM indoor_sensor_data WHERE time >= ? AND time <= ? ORDER BY time"
 
         with get_db() as conn:
-            rows_outdoor = conn.execute(query_outdoor, params).fetchall()
-            rows_indoor = conn.execute(query_indoor, params).fetchall()
+            rows_outdoor = conn.execute(query_outdoor, (start_str, end_str)).fetchall()
+            rows_indoor = conn.execute(query_indoor, (start_str, end_str)).fetchall()
+
+        result_outdoor = [
+            {
+                "time": row["time"],
+                "temperature": row["temperature"],
+                "humidity": row["humidity"],
+                "vbat": row["vbat"],
+                "power_save": bool(row["power_save"]),
+            }
+            for row in rows_outdoor
+        ]
+
+        result_indoor = [
+            {
+                "time": row["time"],
+                "temperature": row["temperature"],
+                "humidity": row["humidity"],
+            }
+            for row in rows_indoor
+        ]
     else:
-        query_outdoor = """
-            SELECT 
-                datetime((strftime('%s', time) / ?) * ?, 'unixepoch') AS time,
-                ROUND(AVG(temperature), 2) AS temperature,
-                ROUND(AVG(humidity), 2) AS humidity,
-                ROUND(AVG(vbat), 3) AS vbat,
-                MAX(power_save) AS power_save
-            FROM sensor_data
-        """
-        query_indoor = """
-            SELECT 
-                datetime((strftime('%s', time) / ?) * ?, 'unixepoch') AS time,
-                ROUND(AVG(temperature), 2) AS temperature,
-                ROUND(AVG(humidity), 2) AS humidity
-            FROM indoor_sensor_data
-        """
+        boundary_dt = end_dt - timedelta(seconds=0.1 * duration_seconds) if end_dt else datetime.now()
 
-        where_clause = ""
-        if conditions:
-            where_clause = " WHERE " + " AND ".join(conditions)
-
-        query_outdoor += where_clause + " GROUP BY 1 ORDER BY 1"
-        query_indoor += where_clause + " GROUP BY 1 ORDER BY 1"
-
-        params_outdoor = [interval, interval] + params
-        params_indoor = [interval, interval] + params
+        raw_start_outdoor = boundary_dt
+        raw_start_indoor = boundary_dt
 
         with get_db() as conn:
-            rows_outdoor = conn.execute(query_outdoor, params_outdoor).fetchall()
-            rows_indoor = conn.execute(query_indoor, params_indoor).fetchall()
+            if keep_raw:
+                # Find 10th-from-last timestamp inside requested range
+                row_out_10 = conn.execute(
+                    "SELECT time FROM sensor_data WHERE time >= ? AND time <= ? ORDER BY time DESC LIMIT 1 OFFSET 9",
+                    (start_str, end_str)
+                ).fetchone()
+                if row_out_10:
+                    try:
+                        raw_start_outdoor = min(boundary_dt, datetime.fromisoformat(row_out_10["time"]))
+                    except ValueError:
+                        pass
 
-    result_outdoor = [
-        {
-            "time": row["time"],
-            "temperature": row["temperature"],
-            "humidity": row["humidity"],
-            "vbat": row["vbat"],
-            "power_save": bool(row["power_save"]),
-        }
-        for row in rows_outdoor
-    ]
+                row_in_10 = conn.execute(
+                    "SELECT time FROM indoor_sensor_data WHERE time >= ? AND time <= ? ORDER BY time DESC LIMIT 1 OFFSET 9",
+                    (start_str, end_str)
+                ).fetchone()
+                if row_in_10:
+                    try:
+                        raw_start_indoor = min(boundary_dt, datetime.fromisoformat(row_in_10["time"]))
+                    except ValueError:
+                        pass
 
-    result_indoor = [
-        {
-            "time": row["time"],
-            "temperature": row["temperature"],
-            "humidity": row["humidity"],
-        }
-        for row in rows_indoor
-    ]
+            # Make sure raw starts do not go before start_dt
+            if raw_start_outdoor < start_dt:
+                raw_start_outdoor = start_dt
+            if raw_start_indoor < start_dt:
+                raw_start_indoor = start_dt
+
+            raw_start_outdoor_str = raw_start_outdoor.isoformat()
+            raw_start_indoor_str = raw_start_indoor.isoformat()
+
+            # --- Query Outdoor ---
+            if keep_raw and raw_start_outdoor_str > start_str:
+                rows_outdoor_agg = conn.execute(
+                    """
+                    SELECT 
+                        datetime((strftime('%s', time) / ?) * ?, 'unixepoch') AS time,
+                        ROUND(AVG(temperature), 2) AS temperature,
+                        ROUND(AVG(humidity), 2) AS humidity,
+                        ROUND(AVG(vbat), 3) AS vbat,
+                        MAX(power_save) AS power_save
+                    FROM sensor_data
+                    WHERE time >= ? AND time < ?
+                    GROUP BY 1 ORDER BY 1
+                    """,
+                    (interval, interval, start_str, raw_start_outdoor_str)
+                ).fetchall()
+
+                rows_outdoor_raw = conn.execute(
+                    """
+                    SELECT time, temperature, humidity, vbat, power_save
+                    FROM sensor_data
+                    WHERE time >= ? AND time <= ?
+                    ORDER BY time
+                    """,
+                    (raw_start_outdoor_str, end_str)
+                ).fetchall()
+            else:
+                if keep_raw:
+                    rows_outdoor_agg = []
+                    rows_outdoor_raw = conn.execute(
+                        "SELECT time, temperature, humidity, vbat, power_save FROM sensor_data WHERE time >= ? AND time <= ? ORDER BY time",
+                        (start_str, end_str)
+                    ).fetchall()
+                else:
+                    rows_outdoor_agg = conn.execute(
+                        """
+                        SELECT 
+                            datetime((strftime('%s', time) / ?) * ?, 'unixepoch') AS time,
+                            ROUND(AVG(temperature), 2) AS temperature,
+                            ROUND(AVG(humidity), 2) AS humidity,
+                            ROUND(AVG(vbat), 3) AS vbat,
+                            MAX(power_save) AS power_save
+                        FROM sensor_data
+                        WHERE time >= ? AND time <= ?
+                        GROUP BY 1 ORDER BY 1
+                        """,
+                        (interval, interval, start_str, end_str)
+                    ).fetchall()
+                    rows_outdoor_raw = []
+
+            # --- Query Indoor ---
+            if keep_raw and raw_start_indoor_str > start_str:
+                rows_indoor_agg = conn.execute(
+                    """
+                    SELECT 
+                        datetime((strftime('%s', time) / ?) * ?, 'unixepoch') AS time,
+                        ROUND(AVG(temperature), 2) AS temperature,
+                        ROUND(AVG(humidity), 2) AS humidity
+                    FROM indoor_sensor_data
+                    WHERE time >= ? AND time < ?
+                    GROUP BY 1 ORDER BY 1
+                    """,
+                    (interval, interval, start_str, raw_start_indoor_str)
+                ).fetchall()
+
+                rows_indoor_raw = conn.execute(
+                    """
+                    SELECT time, temperature, humidity
+                    FROM indoor_sensor_data
+                    WHERE time >= ? AND time <= ?
+                    ORDER BY time
+                    """,
+                    (raw_start_indoor_str, end_str)
+                ).fetchall()
+            else:
+                if keep_raw:
+                    rows_indoor_agg = []
+                    rows_indoor_raw = conn.execute(
+                        "SELECT time, temperature, humidity FROM indoor_sensor_data WHERE time >= ? AND time <= ? ORDER BY time",
+                        (start_str, end_str)
+                    ).fetchall()
+                else:
+                    rows_indoor_agg = conn.execute(
+                        """
+                        SELECT 
+                            datetime((strftime('%s', time) / ?) * ?, 'unixepoch') AS time,
+                            ROUND(AVG(temperature), 2) AS temperature,
+                            ROUND(AVG(humidity), 2) AS humidity
+                        FROM indoor_sensor_data
+                        WHERE time >= ? AND time <= ?
+                        GROUP BY 1 ORDER BY 1
+                        """,
+                        (interval, interval, start_str, end_str)
+                    ).fetchall()
+                    rows_indoor_raw = []
+
+        result_outdoor = [
+            {
+                "time": row["time"],
+                "temperature": row["temperature"],
+                "humidity": row["humidity"],
+                "vbat": row["vbat"],
+                "power_save": bool(row["power_save"]),
+            }
+            for row in rows_outdoor_agg
+        ] + [
+            {
+                "time": row["time"],
+                "temperature": row["temperature"],
+                "humidity": row["humidity"],
+                "vbat": row["vbat"],
+                "power_save": bool(row["power_save"]),
+            }
+            for row in rows_outdoor_raw
+        ]
+
+        result_indoor = [
+            {
+                "time": row["time"],
+                "temperature": row["temperature"],
+                "humidity": row["humidity"],
+            }
+            for row in rows_indoor_agg
+        ] + [
+            {
+                "time": row["time"],
+                "temperature": row["temperature"],
+                "humidity": row["humidity"],
+            }
+            for row in rows_indoor_raw
+        ]
 
     result = {
         "outdoor": result_outdoor,

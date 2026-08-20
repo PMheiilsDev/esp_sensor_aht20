@@ -2,7 +2,7 @@ import os
 import json
 import unittest
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Setup test DB files
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -205,6 +205,47 @@ class TestDirectAHTIntegration(unittest.TestCase):
         self.assertEqual(data_agg["indoor"][0]["time"], "2026-08-20 10:00:00")
         self.assertEqual(data_agg["indoor"][0]["temperature"], 20.5)
         self.assertEqual(data_agg["indoor"][0]["humidity"], 50.5)
+
+    def test_keep_raw_ends_in_aggregation(self):
+        # Seed 15 records, each 10 minutes apart (150 minutes total duration)
+        base_time = datetime(2026, 8, 20, 10, 0, 0)
+        times = [
+            (base_time + timedelta(minutes=10 * i)).isoformat()
+            for i in range(15)
+        ]
+
+        with db.get_db() as conn:
+            for idx, t in enumerate(times):
+                conn.execute(
+                    "INSERT INTO indoor_sensor_data (time, temperature, humidity) VALUES (?, ?, ?)",
+                    (t, 20.0 + idx, 50.0 + idx)
+                )
+            conn.commit()
+
+        # Query with keep_raw=true (default) and samples=10
+        # Total duration = 140 minutes (8400s). samples=10 -> interval = 840s (14 minutes).
+        # Since interval > 30, it runs aggregation.
+        # It should preserve at least the last 10 points raw (meaning times[-10:] stay completely raw).
+        api_response_raw_ends = self.app_client.get(f"/api/data?start={times[0]}&end={times[-1]}&samples=10&keep_raw=true")
+        self.assertEqual(api_response_raw_ends.status_code, 200)
+        data_raw_ends = json.loads(api_response_raw_ends.data.decode("utf-8"))
+
+        # The last 10 points returned should have the exact original ISO format (which includes the T separator)
+        # instead of the rounded SQLite datetime space format 'YYYY-MM-DD HH:MM:SS'
+        last_returned_points = data_raw_ends["indoor"][-10:]
+        for idx, point in enumerate(last_returned_points):
+            expected_original_time = times[idx + 5] # last 10 raw correspond to times 5 to 14
+            self.assertEqual(point["time"], expected_original_time)
+
+        # Query with keep_raw=false
+        api_response_no_raw_ends = self.app_client.get(f"/api/data?start={times[0]}&end={times[-1]}&samples=10&keep_raw=false")
+        self.assertEqual(api_response_no_raw_ends.status_code, 200)
+        data_no_raw_ends = json.loads(api_response_no_raw_ends.data.decode("utf-8"))
+
+        # Since keep_raw=false, all points are aggregated, meaning all timestamps will be in the rounded 'YYYY-MM-DD HH:MM:SS' space format
+        for point in data_no_raw_ends["indoor"]:
+            self.assertIn(" ", point["time"])
+            self.assertNotIn("T", point["time"])
 
 
 if __name__ == "__main__":
