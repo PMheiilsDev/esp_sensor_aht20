@@ -161,6 +161,7 @@ class TestDirectAHTIntegration(unittest.TestCase):
         base_time = datetime(2026, 8, 20, 10, 0, 0)
         times = [
             (base_time.replace(minute=0)).isoformat(), # 10:00:00
+            (base_time.replace(minute=1)).isoformat(), # 10:01:00 (SAME 5-minute bucket as 10:00:00!)
             (base_time.replace(minute=10)).isoformat(), # 10:10:00
             (base_time.replace(minute=20)).isoformat(), # 10:20:00
             (base_time.replace(minute=30)).isoformat(), # 10:30:00
@@ -178,13 +179,14 @@ class TestDirectAHTIntegration(unittest.TestCase):
 
         # Test Case 1: High zoom level (samples=100)
         # duration = 3000s, samples = 100 -> interval = 30s.
-        # Since interval <= 30, it should return RAW (unaggregated) data (6 records).
+        # Since interval <= 30, it should return RAW (unaggregated) data (7 records).
         api_response_zoom = self.app_client.get(f"/api/data?start={times[0]}&end={times[-1]}&samples=100")
         self.assertEqual(api_response_zoom.status_code, 200)
         data_zoom = json.loads(api_response_zoom.data.decode("utf-8"))
-        self.assertEqual(len(data_zoom["indoor"]), 6)
+        self.assertEqual(len(data_zoom["indoor"]), 7)
         # Verify it has original unrounded times (e.g. including minutes)
         self.assertEqual(data_zoom["indoor"][0]["time"], times[0])
+        self.assertEqual(data_zoom["indoor"][1]["time"], times[1])
 
         # Test Case 2: Low zoom level / zoomed out (samples=10)
         # duration = 3000s, samples = 10 -> interval = 300s (5 minutes).
@@ -194,11 +196,15 @@ class TestDirectAHTIntegration(unittest.TestCase):
         data_agg = json.loads(api_response_agg.data.decode("utf-8"))
         
         # SQL-aggregated times are rounded to nearest 300s interval and formatted as 'YYYY-MM-DD HH:MM:SS'
-        # Since times are 10 minutes apart, each falls into a separate 5-minute bucket (300s is 5 min).
-        # So we should still have 6 buckets, but the times are rounded/formatted.
+        # Since times include 10:00:00 and 10:01:00, they fall into the same 5-minute bucket.
+        # Other times are 10 minutes apart, so each falls into its own separate 5-minute bucket.
+        # Total buckets = 6 (instead of 7 raw records).
         self.assertEqual(len(data_agg["indoor"]), 6)
-        # Verify the time format is converted back and rounded
+        
+        # Verify the duplicate bucket (10:00:00) contains the correct average: (20.0 + 21.0) / 2 = 20.5
         self.assertEqual(data_agg["indoor"][0]["time"], "2026-08-20 10:00:00")
+        self.assertEqual(data_agg["indoor"][0]["temperature"], 20.5)
+        self.assertEqual(data_agg["indoor"][0]["humidity"], 50.5)
 
 
 if __name__ == "__main__":
