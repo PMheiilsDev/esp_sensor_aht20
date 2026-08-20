@@ -93,6 +93,9 @@
         const end =
             document.getElementById("end").value;
 
+        const samples =
+            document.getElementById("samples").value;
+
 
         /*
          * Make sure dates exist.
@@ -156,7 +159,7 @@
              * Request data.
              */
             let url =
-                `/api/data?start=${encodeURIComponent(start)}`;
+                `/api/data?start=${encodeURIComponent(start)}&samples=${encodeURIComponent(samples)}`;
 
             if (endManuallyChanged) {
                 url += `&end=${encodeURIComponent(end)}`;

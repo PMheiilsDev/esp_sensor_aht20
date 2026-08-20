@@ -110,17 +110,106 @@ def api_data():
     query_outdoor = "SELECT time, temperature, humidity, vbat, power_save FROM sensor_data"
     query_indoor = "SELECT time, temperature, humidity FROM indoor_sensor_data"
 
-    if conditions:
-        where_clause = " WHERE " + " AND ".join(conditions)
-        query_outdoor += where_clause
-        query_indoor += where_clause
+    try:
+        samples = int(request.args.get("samples", 500))
+    except ValueError:
+        samples = 500
 
-    query_outdoor += " ORDER BY time"
-    query_indoor += " ORDER BY time"
+    start_dt = None
+    end_dt = None
 
-    with get_db() as conn:
-        rows_outdoor = conn.execute(query_outdoor, params).fetchall()
-        rows_indoor = conn.execute(query_indoor, params).fetchall()
+    if start:
+        try:
+            start_dt = datetime.fromisoformat(start)
+        except ValueError:
+            pass
+
+    if end:
+        try:
+            end_dt = datetime.fromisoformat(end)
+        except ValueError:
+            pass
+    else:
+        # If no end is provided, get the max time from database
+        with get_db() as conn:
+            row_out = conn.execute("SELECT MAX(time) as max_t FROM sensor_data").fetchone()
+            row_in = conn.execute("SELECT MAX(time) as max_t FROM indoor_sensor_data").fetchone()
+        candidates = []
+        if row_out and row_out["max_t"]:
+            candidates.append(row_out["max_t"])
+        if row_in and row_in["max_t"]:
+            candidates.append(row_in["max_t"])
+        if candidates:
+            try:
+                end_dt = datetime.fromisoformat(max(candidates))
+            except ValueError:
+                end_dt = datetime.now()
+        else:
+            end_dt = datetime.now()
+
+    if not start_dt:
+        with get_db() as conn:
+            row_out = conn.execute("SELECT MIN(time) as min_t FROM sensor_data").fetchone()
+            row_in = conn.execute("SELECT MIN(time) as min_t FROM indoor_sensor_data").fetchone()
+        candidates = []
+        if row_out and row_out["min_t"]:
+            candidates.append(row_out["min_t"])
+        if row_in and row_in["min_t"]:
+            candidates.append(row_in["min_t"])
+        if candidates:
+            try:
+                start_dt = datetime.fromisoformat(min(candidates))
+            except ValueError:
+                start_dt = datetime.now()
+        else:
+            start_dt = datetime.now()
+
+    duration_seconds = (end_dt - start_dt).total_seconds() if start_dt and end_dt else 0
+    interval = int(duration_seconds / samples) if samples > 0 else 0
+
+    if interval <= 30:
+        if conditions:
+            where_clause = " WHERE " + " AND ".join(conditions)
+            query_outdoor += where_clause
+            query_indoor += where_clause
+
+        query_outdoor += " ORDER BY time"
+        query_indoor += " ORDER BY time"
+
+        with get_db() as conn:
+            rows_outdoor = conn.execute(query_outdoor, params).fetchall()
+            rows_indoor = conn.execute(query_indoor, params).fetchall()
+    else:
+        query_outdoor = """
+            SELECT 
+                datetime((strftime('%s', time) / ?) * ?, 'unixepoch') AS time,
+                ROUND(AVG(temperature), 2) AS temperature,
+                ROUND(AVG(humidity), 2) AS humidity,
+                ROUND(AVG(vbat), 3) AS vbat,
+                MAX(power_save) AS power_save
+            FROM sensor_data
+        """
+        query_indoor = """
+            SELECT 
+                datetime((strftime('%s', time) / ?) * ?, 'unixepoch') AS time,
+                ROUND(AVG(temperature), 2) AS temperature,
+                ROUND(AVG(humidity), 2) AS humidity
+            FROM indoor_sensor_data
+        """
+
+        where_clause = ""
+        if conditions:
+            where_clause = " WHERE " + " AND ".join(conditions)
+
+        query_outdoor += where_clause + " GROUP BY time ORDER BY time"
+        query_indoor += where_clause + " GROUP BY time ORDER BY time"
+
+        params_outdoor = [interval, interval] + params
+        params_indoor = [interval, interval] + params
+
+        with get_db() as conn:
+            rows_outdoor = conn.execute(query_outdoor, params_outdoor).fetchall()
+            rows_indoor = conn.execute(query_indoor, params_indoor).fetchall()
 
     result_outdoor = [
         {

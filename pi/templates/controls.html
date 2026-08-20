@@ -26,11 +26,29 @@
             value="{{ default_end }}">
 
     </div>
-
+    
 
     <button type="button" onclick="changeDateRange()">
         Update
     </button>
+
+    <div class="control">
+
+        <label for="samples">
+            Target Samples
+        </label>
+
+        <select id="samples" onchange="changeDateRange()">
+            <option value="25">25 points</option>
+            <option value="50">50 points</option>
+            <option value="100" selected>100 points (Default)</option>
+            <option value="250">250 points</option>
+            <option value="500">500 points</option>
+        </select>
+
+    </div>
+
+
 
 
     <div class="status" id="status">

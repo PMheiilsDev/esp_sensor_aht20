@@ -156,6 +156,50 @@ class TestDirectAHTIntegration(unittest.TestCase):
             if os.path.exists(f):
                 os.remove(f)
 
+    def test_dynamic_aggregation_and_zoom(self):
+        # Seed several indoor records spanning 50 minutes (3000 seconds)
+        base_time = datetime(2026, 8, 20, 10, 0, 0)
+        times = [
+            (base_time.replace(minute=0)).isoformat(), # 10:00:00
+            (base_time.replace(minute=10)).isoformat(), # 10:10:00
+            (base_time.replace(minute=20)).isoformat(), # 10:20:00
+            (base_time.replace(minute=30)).isoformat(), # 10:30:00
+            (base_time.replace(minute=40)).isoformat(), # 10:40:00
+            (base_time.replace(minute=50)).isoformat(), # 10:50:00
+        ]
+        
+        with db.get_db() as conn:
+            for idx, t in enumerate(times):
+                conn.execute(
+                    "INSERT INTO indoor_sensor_data (time, temperature, humidity) VALUES (?, ?, ?)",
+                    (t, 20.0 + idx, 50.0 + idx)
+                )
+            conn.commit()
+
+        # Test Case 1: High zoom level (samples=100)
+        # duration = 3000s, samples = 100 -> interval = 30s.
+        # Since interval <= 30, it should return RAW (unaggregated) data (6 records).
+        api_response_zoom = self.app_client.get(f"/api/data?start={times[0]}&end={times[-1]}&samples=100")
+        self.assertEqual(api_response_zoom.status_code, 200)
+        data_zoom = json.loads(api_response_zoom.data.decode("utf-8"))
+        self.assertEqual(len(data_zoom["indoor"]), 6)
+        # Verify it has original unrounded times (e.g. including minutes)
+        self.assertEqual(data_zoom["indoor"][0]["time"], times[0])
+
+        # Test Case 2: Low zoom level / zoomed out (samples=10)
+        # duration = 3000s, samples = 10 -> interval = 300s (5 minutes).
+        # Since interval > 30, it should run SQL aggregation.
+        api_response_agg = self.app_client.get(f"/api/data?start={times[0]}&end={times[-1]}&samples=10")
+        self.assertEqual(api_response_agg.status_code, 200)
+        data_agg = json.loads(api_response_agg.data.decode("utf-8"))
+        
+        # SQL-aggregated times are rounded to nearest 300s interval and formatted as 'YYYY-MM-DD HH:MM:SS'
+        # Since times are 10 minutes apart, each falls into a separate 5-minute bucket (300s is 5 min).
+        # So we should still have 6 buckets, but the times are rounded/formatted.
+        self.assertEqual(len(data_agg["indoor"]), 6)
+        # Verify the time format is converted back and rounded
+        self.assertEqual(data_agg["indoor"][0]["time"], "2026-08-20 10:00:00")
+
 
 if __name__ == "__main__":
     unittest.main()
